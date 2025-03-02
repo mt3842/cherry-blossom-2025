@@ -1,5 +1,5 @@
 ---
-title: "Predictions Analysis"
+title: "Cherry Blossom Peak Bloom Predictions"
 author: "Student"
 date: "02/28/2025"
 lang: en-US
@@ -49,7 +49,7 @@ newyorkcity = pd.read_csv('data/nyc.csv')
 ```{python}
 # Create and engineer relevant features for Washington DC 
 # Years not included (missing data): 2000 
-wdc_weather_df = pd.read_csv('wdc_weather1990_2024.csv')
+wdc_weather_df = pd.read_csv('data/wdc_weather1990_2024.csv')
 wdc_weather_df.reset_index(drop=True, inplace=True)
 wdc_weather_df['Date'] = pd.to_datetime(wdc_weather_df['Date'])
 wdc_weather_df.sort_values(by='Date',inplace=True)
@@ -74,7 +74,8 @@ wdc_bloomdates_df, with bloom dates for each year
 Since we want to compare a bloom cycle, i.e from dormancy to bloom, we will count each year's 
 bloom as starting from the day after the previous bloom and ending with the current bloom.
 
-temp_of_day_from_bloom_df
+temp_of_day_from_bloom_df: 
+
 - rows: day of bloom (1 denotes first day after previous bloom) 
 - column: cycle (year)
 
@@ -84,7 +85,8 @@ to any NaN, is the bloom date.
 
 Each column represents one cycle, from post-bloom dormancy to the next bloom.
 
-We will also take the inverse of the dataframe, and call it temp_of_day_till_bloom_df
+We will also take the inverse of the dataframe, and call it temp_of_day_till_bloom_df:
+
 - rows: day till bloom (1 denotes one day prior to the current bloom, and 0 be the bloom itself.)
 - column: cycle (year)
 
@@ -107,7 +109,7 @@ inv_temp_of_day_from_bloom_df = temp_of_day_from_bloom_df.iloc[::-1]
 for col in inv_temp_of_day_from_bloom_df.columns:
     nan_count = inv_temp_of_day_from_bloom_df[col].isna().sum()
 
-    # Shift the column up by the number of NaN values and remove NaNs
+    # Remove NaN
     temp_of_day_till_bloom_df[col] = inv_temp_of_day_from_bloom_df[col].iloc[nan_count:].reset_index(drop=True)
 
 temp_of_day_till_bloom_df = temp_of_day_till_bloom_df.head(330)
@@ -115,15 +117,37 @@ temp_of_day_till_bloom_df['days_till_bloom'] = temp_of_day_till_bloom_df.index
 temp_of_day_till_bloom_df
 ```
 
-Now, let's add some more complicated features onto the dataframe. We will look at functions of temperature, including the rolling sum of squares, sum of degree days (days in which a certain degree threshold is met, usually meaning a temperature average of 32F and higher or 50F and higher), rolling temp change, etc.
+Now, let's add some more complicated features onto the dataframe. We will look at functions of temperature, as it is theorized that bloom cycles occur after certain thresholds of temperature are met. The following functions were used as features:
+
+All data is created and stored in the new dataframe, df.
+
+Each feature name begins with the year of bloom, followed by the following suffix. For example, the 1991 bloom cycle will have the features:
+
+- 1991_b : daily average Temperature
+- 1991_b_sum_sq : sum of squared daily temperature, rolling over last 21 days 
+- 1991_b_sum_log : sum of log daily temperature, rolling over last 21 days
+
+... and so on. Below are definitions of all features
+
+| Feature     | 10      |
+|------|-------------|
+| _sum_sq    | sum of squared daily temperature, rolling over last 21 days     |
+| _sum_log   | sum of log daily temperature, rolling over last 21 days     |
+| _sum_dd32  | sum of number of days where temperature exceeds 32 F, rolling over last 21 days     |
+| _sum_dd50  | sum of number of days where temperature exceeds 50 F, rolling over last 21 days     | 
+| _sum_last14    | sum of daily temperature, rolling over last 14 days     |
+| _norm_dd_32   | sum of days where days above 32F are (+1) and days below are (-1), rolling over last 21 days     |
+| _norm_dd_50  |  sum of days where days above 50F are (+1) and days below are (-1), rolling over last 21 days     |
+| _rolling_freeze  | sum of number of days where temperature is below 32 F, rolling over last 21 days      | 
+| _rolling_chill  | sum of number of days where temperature is between 32 F and 50 F, rolling over last 21 days     | 
+| _rolling_temp_change  | temperature change between last 7 days     | 
+
 
 
 ```{python}
-# Sample DataFrame setup (replace with actual gbm_temp_of_day_from_bloom_df)
-# Assuming 'days_till_bloom' is the index or a separate column
 df = temp_of_day_till_bloom_df.copy()
 
-# Reverse cumulative sum for each bloom cycle
+# Functions of temperature for each bloom cycle
 for col in df.columns:
     if col.endswith('_b'):
         df[f'{col}_sum_sq'] = df[col][::-1].pow(2).rolling(window=21, min_periods=1).sum()[::-1]
@@ -131,15 +155,12 @@ for col in df.columns:
         df[f'{col}_sum_dd32'] = (df[col][::-1] > 32).rolling(window=21, min_periods=1).sum()[::-1]
         df[f'{col}_sum_dd50'] = (df[col][::-1] > 50).rolling(window=21, min_periods=1).sum()[::-1]
         df[f'{col}_sum_last14'] = df[col][::-1].rolling(window=14, min_periods=1).sum()[::-1]
-        # New Features
         df[f'{col}_norm_dd_32'] = ((df[col] > 32).astype(int) * 1 + (df[col] <= 32).astype(int) * -1).rolling(window=21, min_periods=1).sum()[::-1]
         df[f'{col}_norm_dd_50'] = ((df[col] > 50).astype(int) * 1 + (df[col] <= 50).astype(int) * -1).rolling(window=21, min_periods=1).sum()[::-1]
         df[f'{col}_rolling_freeze'] = (df[col][::-1] < 32).rolling(window=21, min_periods=1).sum()[::-1]
         df[f'{col}_rolling_chill'] = ((df[col][::-1] >= 32) & (df[col][::-1] < 50)).rolling(window=21, min_periods=1).sum()[::-1]
         df[f'{col}_rolling_temp_change'] = df[col][::-1].diff(periods=7)[::-1]
 
-
-# Ensure original column order and proper placement of 'days_till_bloom'
 cols = ['days_till_bloom'] + [c for c in df.columns if c != 'days_till_bloom']
 df = df[cols]
 df = df.head(80)
@@ -153,13 +174,10 @@ Let's see what our data looks like.
 ```{python}
 # Show raw data
 
-plt.figure(figsize=(10, 10))  # Set the figure size
+plt.figure(figsize=(10, 10))
 
 for year in temp_of_day_from_bloom_df.columns:
-    # Only plot the non-null values for each year (as some bloom cycles might be shorter than others)
     bloom_cycle = df[year]
-
-    # Plot the year as a line on the graph
     plt.plot(bloom_cycle.index, bloom_cycle.values, label=str(year))
 
 plt.xlabel('Number of Days Till Bloom')
@@ -197,8 +215,8 @@ Looking at continuous functions of temperature:
 feature_suffixes_cont = ['_sum_sq', '_sum_log', '_sum_last14', '_rolling_temp_change']
 for suffix in feature_suffixes_cont:
     cv = df[[col for col in df.columns if col.endswith(suffix)]]
-    plt.figure(figsize=(10, 3))  # Set the figure size
-    plt.xlabel('Mapping of ' + suffix)
+    plt.figure(figsize=(10, 3)) 
+    plt.xlabel('Number of Days Till Bloom')
     plt.xticks(np.arange(0, 115, 5))
     plt.title('Patterns of ' + suffix)
     plt.ylabel(suffix)
@@ -217,8 +235,8 @@ Now discrete functions of temperature:
 feature_suffixes_disc = ['_sum_dd32', '_sum_dd50','_norm_dd_32', '_norm_dd_50','_rolling_freeze', '_rolling_chill',]
 for suffix in feature_suffixes_disc:
     cv = df[[col for col in df.columns if col.endswith(suffix)]]
-    plt.figure(figsize=(10, 3))  # Set the figure size
-    plt.xlabel('Mapping of ' + suffix)
+    plt.figure(figsize=(10, 3))
+    plt.xlabel('Number of Days Till Bloom')
     plt.xticks(np.arange(0, 115, 5))
     plt.title('Patterns of ' + suffix)
     plt.ylabel(suffix)
@@ -241,8 +259,7 @@ Now let's define some methods that will help us experiment and predict on data.
 
 def extract_historical_feature_sets(df, feature_suffixes):
     """
-    Extracts historical data for different feature types.
-    Returns a dictionary where keys are feature suffixes, and values are historical data DataFrames.
+    Returns a dict where keys are feature suffixes, and values are DF of those suffixes.
     """
     feature_sets = {}
     for suffix in feature_suffixes:
@@ -252,13 +269,11 @@ def extract_historical_feature_sets(df, feature_suffixes):
 
 def predict_from_arrays(historical_feature_sets, test_sequences):
     """
-    Runs FastDTW on provided test sequences against historical feature data.
-    
-    - historical_feature_sets: Dict where keys are feature suffixes, values are DataFrames.
-    - test_sequences: Dict where keys are feature suffixes, values are test numpy arrays.
+    - historical_feature_sets: dict where keys are feature suffixes, and values are DF of those suffixes
+    - test_sequences: dict where keys are feature suffixes, values are test numpy arrays.
         
     Returns:
-        - results: Dict with best-matching year, start index, and distance for each feature type.
+        - results: dict with best-matching year, best days_till_bloom index, and distance for each feature type.
     """
     results = {}
     
@@ -298,7 +313,7 @@ historical_feature_sets = extract_historical_feature_sets(df, feature_suffixes)
 ```
 
 
-Here, my prediction function uses FastDTW to compare vectors of time series. It finds the lowest Euclidean norm (L2) between a given input and a historical data. This slice of temperature input is thought to be "sliding" across the time, checking for patterns and attempting to match it to a historical bloom cycle. After completing the computations, it returns the lowest L2 norm and what the implied days_till_bloom is. This can be used to predict where we currently are in the cycle, which intuitively allows us to estimate when it will bloom. This process was used due to the fact that future temperature data would not need to be modeled or predicted.
+Here, the prediction function uses FastDTW to compare vectors of time series. It finds the lowest Euclidean norm (L2) between a given input and a historical data. This slice of temperature input is thought to be "sliding" across the time, checking for patterns and attempting to match it to a historical bloom cycle. After completing the computations, it returns the lowest L2 norm and what the implied days_till_bloom is. This can be used to predict where we currently are in the cycle, which intuitively allows us to estimate when it will bloom. This process was used due to the fact that future temperature data would not need to be modeled or predicted.
 
 
 
@@ -342,7 +357,6 @@ for loc in all_locations:
             temp_2025_dc[f'{col}_sum_dd32'] = (temp_2025_dc[col][::-1] > 32).rolling(window=21, min_periods=1).sum()[::-1]
             temp_2025_dc[f'{col}_sum_dd50'] = (temp_2025_dc[col][::-1] > 50).rolling(window=21, min_periods=1).sum()[::-1]
             temp_2025_dc[f'{col}_sum_last14'] = temp_2025_dc[col][::-1].rolling(window=14, min_periods=1).sum()[::-1]
-            # New Features
             temp_2025_dc[f'{col}_norm_dd_32'] = ((temp_2025_dc[col] > 32).astype(int) * 1 + (temp_2025_dc[col] <= 32).astype(int) * -1).rolling(window=21, min_periods=1).sum()[::-1]
             temp_2025_dc[f'{col}_norm_dd_50'] = ((temp_2025_dc[col] > 50).astype(int) * 1 + (temp_2025_dc[col] <= 50).astype(int) * -1).rolling(window=21, min_periods=1).sum()[::-1]
             temp_2025_dc[f'{col}_rolling_freeze'] = (temp_2025_dc[col][::-1] < 32).rolling(window=21, min_periods=1).sum()[::-1]
@@ -370,8 +384,7 @@ for loc in all_locations:
 
         }
 
-        all_results.append((interval, predict_from_arrays(historical_feature_sets, test_sequences)
-        ))
+        all_results.append((interval, predict_from_arrays(historical_feature_sets, test_sequences)))
 
     #all_results
     print("Results for " + loc.name)
@@ -390,14 +403,14 @@ for loc in all_locations:
     data.append((loc.name, arrays))
     
     print("----- ----- -----")
-
 ```
 
-After computing the estimated days_till_bloom for differing interval lengths, we can compare the estimated days. There are many outliers in the prediction, and the predictions can be wildly different at times. The chosen dates were picked in a non-rigorous intuitive method. While this may not be an ideal way to predict all the time, in this scenario it might be okay. That's because many of the high variance points are very unlikely; for example, points like 0 and 50 mean that the model thinks the trees are blooming today / in 50 days. We can reason intuitively that neither of these cases are/will happen. Thus, the median values we are left with are used to create the prediction and prediction intervals.
+After computing the estimated days_till_bloom for differing interval lengths, we can compare the estimated days. There are many outliers in the prediction, and the predictions can be wildly different at times. The chosen dates were picked in a non-rigorous, intuitive approach. While this may not be an ideal method for repeatability, for this specific prediction it might be okay. That's because many of the high variance points are very unlikely; for example, points like 0 or 50 mean that the model thinks the trees are blooming today or in 50 days. We can reason intuitively that neither of these cases are/will happen, based on historical blooms. Thus, the median values we are left with are used to create the prediction and prediction intervals.
 
 
 Table for Washington DC
-- columns represent the size of the prediction interval.
+
+- columns represent the size of the testing interval.
 - Values represent the predicted days_till_bloom 
 
 
@@ -408,10 +421,10 @@ Table for Washington DC
 | _sum_dd32  |  0     |  6     |  1     | 40     |
 | _sum_dd50  | 31     | 17     | 36     | 18     |
 
-...and more values.
+...and more values. \n
 
 
-In the end, the predicted result is:
+In the end, the final predictions for bloom dates (day of year) are:
 
 
 | location      | prediction      | lower       | upper     |
@@ -423,11 +436,17 @@ In the end, the predicted result is:
 | newyorkcity  |             95  |         93  |         97  |
 
 
+
 # Limitations
 
 While the initial results seem like they have potential, it is important to mention the many limitations of this modeling.
-- Data set only trained on Washington DC temperatures; train on other countries as well
-- Low histoircal training data for places like NYC 
+
+- Data set only trained on Washington DC temperatures; may not be comparable to other countries
+- Training on more years past 1990
+- Differing cycle lengths may impact prediction
+- Low historical training data for places like NYC 
 - Different breeds of cherry blossoms might have different cycles and cycle patterns
 - Not accounting for special impactful events (storms, dry spells, etc)
+- Likely better results using other variables alongside temperature (emissions, sunlight, rainfall)
+- Predictions and predictions intervals not chosen using empirical and repeatable method 
 
